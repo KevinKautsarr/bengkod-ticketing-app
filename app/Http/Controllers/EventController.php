@@ -2,12 +2,14 @@
 
 namespace App\Http\Controllers;
 
+use App\Exports\EventsExport;
 use App\Http\Requests\EventFormRequest;
 use App\Models\Event;
 use App\Models\Kategori;
 use App\Models\Tiket;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
+use Maatwebsite\Excel\Facades\Excel;
 
 class EventController extends Controller
 {
@@ -35,6 +37,10 @@ class EventController extends Controller
 
         $events = $eventsQuery->paginate(10);
         $categories = Kategori::all();
+
+        foreach ($events as $event) {
+            $event->recordStatusChangeIfNeeded();
+        }
 
         return view('pages.admin.events.index', [
             'events' => $events,
@@ -85,6 +91,8 @@ class EventController extends Controller
             ]);
         }
 
+        $this->recordHistory($event, 'created', 'Event dibuat.');
+
         return redirect()->route('admin.events.index')
             ->with('success', 'Event berhasil ditambahkan!');
     }
@@ -94,7 +102,8 @@ class EventController extends Controller
      */
     public function edit(Event $event)
     {
-        $event->load('tikets');
+        $event->recordStatusChangeIfNeeded();
+        $event->load(['tikets', 'histories.user']);
         $categories = Kategori::all();
         $hasSales = $event->hasSales();
 
@@ -132,8 +141,8 @@ class EventController extends Controller
             'kategori_id' => $validated['kategori_id'],
             'judul' => $validated['judul'],
             'deskripsi' => $validated['deskripsi'],
-            'gambar' => $gambar,
             'lokasi' => $validated['lokasi'],
+            'gambar' => $gambar,
             'tanggal_waktu' => $validated['tanggal_waktu'],
         ]);
 
@@ -168,6 +177,8 @@ class EventController extends Controller
             }
         }
 
+        $this->recordHistory($event, 'updated', 'Event diperbarui.');
+
         return redirect()->route('admin.events.index')
             ->with('success', 'Event berhasil diperbarui!');
     }
@@ -192,6 +203,78 @@ class EventController extends Controller
     }
 
     /**
+     * Remove multiple events from storage at once.
+     */
+    public function bulkDestroy(Request $request)
+    {
+        $request->validate([
+            'event_ids' => 'required|array|min:1',
+            'event_ids.*' => 'exists:events,id',
+        ]);
+
+        $events = Event::whereIn('id', $request->event_ids)->get();
+
+        $deleted = 0;
+        $skipped = 0;
+
+        foreach ($events as $event) {
+            if ($event->hasSales()) {
+                $skipped++;
+                continue;
+            }
+
+            if ($event->gambar && $event->gambar !== 'konser.jpg' && Storage::disk('public')->exists($event->gambar)) {
+                Storage::disk('public')->delete($event->gambar);
+            }
+
+            $event->delete();
+            $deleted++;
+        }
+
+        $message = "{$deleted} event berhasil dihapus.";
+        if ($skipped > 0) {
+            $message .= " {$skipped} event dilewati karena sudah memiliki penjualan tiket.";
+        }
+
+        return redirect()->route('admin.events.index')->with('success', $message);
+    }
+
+    /**
+     * Duplicate the specified event along with its tickets.
+     */
+    public function clone(Event $event)
+    {
+        $event->load('tikets');
+
+        $newEvent = $event->replicate();
+        $newEvent->judul = $event->judul . ' (Copy)';
+        $newEvent->push();
+
+        foreach ($event->tikets as $tiket) {
+            $newEvent->tikets()->create([
+                'tipe' => $tiket->tipe,
+                'harga' => $tiket->harga,
+                'stok' => $tiket->stok,
+            ]);
+        }
+
+        $this->recordHistory($newEvent, 'cloned', "Event diduplikasi dari \"{$event->judul}\" (ID {$event->id}).");
+
+        return redirect()->route('admin.events.index')
+            ->with('success', 'Event berhasil diduplikasi!');
+    }
+
+    /**
+     * Export events to Excel.
+     */
+    public function export(Request $request)
+    {
+        $filters = $request->only(['kategori_id', 'search', 'sort']);
+
+        return Excel::download(new EventsExport($filters), 'events-' . now()->format('Y-m-d_His') . '.xlsx');
+    }
+
+    /**
      * Display the specified event.
      */
     public function show(Event $event)
@@ -212,6 +295,19 @@ class EventController extends Controller
         return view('events.show', [
             'event' => $event,
             'relatedEvents' => $relatedEvents,
+        ]);
+    }
+
+    /**
+     * Record a history entry for the given event.
+     */
+    protected function recordHistory(Event $event, string $action, ?string $keterangan = null): void
+    {
+        $event->histories()->create([
+            'user_id' => auth()->id(),
+            'action' => $action,
+            'status' => $event->status,
+            'keterangan' => $keterangan,
         ]);
     }
 }

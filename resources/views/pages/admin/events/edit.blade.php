@@ -90,12 +90,13 @@
                         </div>
 
                         <input type="file" name="gambar" id="gambar" accept=".jpg,.jpeg,.png" class="file-input file-input-bordered w-full">
-                        <span class="text-xs text-gray-500">Kosongkan jika tidak ingin mengubah gambar. Maksimal 2MB.</span>
+                        <span class="text-xs text-gray-500">Kosongkan jika tidak ingin mengubah gambar. Maksimal 2MB. Gambar akan bisa dipotong (crop) sebelum diunggah.</span>
                         @error('gambar')
                             <span class="text-error text-sm">{{ $message }}</span>
                         @enderror
                         <div id="image_preview_container" class="hidden mt-2">
                             <img id="image_preview" src="" alt="Preview" class="w-32 h-32 object-cover rounded-lg">
+                            <button type="button" id="recrop_btn" class="btn btn-xs btn-outline mt-2">Crop Ulang</button>
                         </div>
                     </div>
 
@@ -130,7 +131,64 @@
                 </div>
             </form>
         </div>
+
+        <!-- Riwayat Perubahan (Status History) -->
+        @if ($event->histories->isNotEmpty())
+            <div class="bg-white rounded-box p-6 shadow-xs mt-6">
+                <h2 class="text-lg font-semibold mb-4">Riwayat Perubahan</h2>
+
+                <ul class="timeline timeline-vertical">
+                    @foreach ($event->histories as $history)
+                        <li>
+                            @if (!$loop->first)
+                                <hr />
+                            @endif
+                            <div class="timeline-start text-sm text-gray-500">
+                                {{ $history->created_at->format('d M Y, H:i') }}
+                            </div>
+                            <div class="timeline-middle">
+                                <div class="badge badge-sm {{ match($history->action) {
+                                    'created' => 'badge-success',
+                                    'updated' => 'badge-info',
+                                    'cloned' => 'badge-secondary',
+                                    'status_changed' => 'badge-warning',
+                                    default => 'badge-ghost',
+                                } }}">{{ $history->action === 'status_changed' ? 'Status: ' . $history->status : ucfirst($history->action) }}</div>
+                            </div>
+                            <div class="timeline-end timeline-box">
+                                <p class="text-sm">{{ $history->keterangan }}</p>
+                                @if ($history->action !== 'status_changed')
+                                    <p class="text-xs text-gray-400 mt-1">
+                                        oleh {{ $history->user->name ?? 'Sistem' }} &middot; status saat itu: {{ $history->status }}
+                                    </p>
+                                @endif
+                            </div>
+                            @if (!$loop->last)
+                                <hr />
+                            @endif
+                        </li>
+                    @endforeach
+                </ul>
+            </div>
+        @endif
     </div>
+
+    <!-- Crop Image Modal -->
+    <dialog id="crop_modal" class="modal">
+        <div class="modal-box max-w-2xl">
+            <h3 class="text-lg font-bold mb-4">Potong Gambar</h3>
+            <div class="max-h-[60vh] overflow-hidden">
+                <img id="crop_image" src="" alt="Crop preview" class="max-w-full">
+            </div>
+            <div class="modal-action">
+                <button type="button" class="btn" id="crop_cancel_btn">Batal</button>
+                <button type="button" class="btn btn-primary" id="crop_apply_btn">Terapkan</button>
+            </div>
+        </div>
+    </dialog>
+
+    <link href="https://cdn.jsdelivr.net/npm/cropperjs@1.6.2/dist/cropper.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/cropperjs@1.6.2/dist/cropper.min.js"></script>
 
     @php
         $tiketsData = $event->tikets->map(function ($tiket) {
@@ -213,21 +271,86 @@
 
         document.getElementById('add_tiket_btn').addEventListener('click', () => addTiket());
 
-        document.getElementById('gambar').addEventListener('change', function (e) {
-            const file = e.target.files[0];
-            const previewContainer = document.getElementById('image_preview_container');
-            const preview = document.getElementById('image_preview');
+        const gambarInput = document.getElementById('gambar');
+        const previewContainer = document.getElementById('image_preview_container');
+        const preview = document.getElementById('image_preview');
+        const cropImage = document.getElementById('crop_image');
+        const cropModal = document.getElementById('crop_modal');
+        let cropper = null;
+        let lastSelectedFileName = 'gambar.jpg';
 
-            if (file) {
-                const reader = new FileReader();
-                reader.onload = function (event) {
-                    preview.src = event.target.result;
-                    previewContainer.classList.remove('hidden');
-                };
-                reader.readAsDataURL(file);
-            } else {
+        gambarInput.addEventListener('change', function (e) {
+            const file = e.target.files[0];
+            if (!file) {
                 previewContainer.classList.add('hidden');
+                return;
             }
+
+            lastSelectedFileName = file.name;
+            const reader = new FileReader();
+            reader.onload = function (event) {
+                cropImage.src = event.target.result;
+                cropModal.showModal();
+
+                if (cropper) {
+                    cropper.destroy();
+                }
+                cropper = new Cropper(cropImage, {
+                    aspectRatio: NaN,
+                    viewMode: 1,
+                    autoCropArea: 1,
+                });
+            };
+            reader.readAsDataURL(file);
+        });
+
+        document.getElementById('crop_apply_btn').addEventListener('click', function () {
+            if (!cropper) return;
+
+            cropper.getCroppedCanvas().toBlob(function (blob) {
+                const croppedFile = new File([blob], lastSelectedFileName, { type: blob.type });
+                const dataTransfer = new DataTransfer();
+                dataTransfer.items.add(croppedFile);
+                gambarInput.files = dataTransfer.files;
+
+                preview.src = URL.createObjectURL(blob);
+                previewContainer.classList.remove('hidden');
+
+                cropModal.close();
+                cropper.destroy();
+                cropper = null;
+            });
+        });
+
+        document.getElementById('crop_cancel_btn').addEventListener('click', function () {
+            cropModal.close();
+            if (cropper) {
+                cropper.destroy();
+                cropper = null;
+            }
+            gambarInput.value = '';
+            previewContainer.classList.add('hidden');
+        });
+
+        document.getElementById('recrop_btn').addEventListener('click', function () {
+            if (!gambarInput.files.length) return;
+
+            const file = gambarInput.files[0];
+            const reader = new FileReader();
+            reader.onload = function (event) {
+                cropImage.src = event.target.result;
+                cropModal.showModal();
+
+                if (cropper) {
+                    cropper.destroy();
+                }
+                cropper = new Cropper(cropImage, {
+                    aspectRatio: NaN,
+                    viewMode: 1,
+                    autoCropArea: 1,
+                });
+            };
+            reader.readAsDataURL(file);
         });
 
         // Load existing tickets

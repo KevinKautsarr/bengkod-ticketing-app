@@ -44,6 +44,11 @@ class Event extends Model
         return $this->hasMany(Order::class);
     }
 
+    public function histories()
+    {
+        return $this->hasMany(EventHistory::class)->latest();
+    }
+
     public function getStatusAttribute()
     {
         $now = Carbon::now();
@@ -64,6 +69,30 @@ class Event extends Model
     public function hasSales()
     {
         return $this->orders()->exists();
+    }
+
+    /**
+     * Record a history entry if the computed status has changed
+     * since the last recorded status-change entry.
+     */
+    public function recordStatusChangeIfNeeded(): void
+    {
+        $currentStatus = $this->status;
+
+        $lastStatusChange = $this->histories()
+            ->where('action', 'status_changed')
+            ->first();
+
+        if ($lastStatusChange && $lastStatusChange->status === $currentStatus) {
+            return;
+        }
+
+        $this->histories()->create([
+            'user_id' => null,
+            'action' => 'status_changed',
+            'status' => $currentStatus,
+            'keterangan' => "Status event berubah menjadi \"{$currentStatus}\".",
+        ]);
     }
 
     public function scopeUpcoming($query)
