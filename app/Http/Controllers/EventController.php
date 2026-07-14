@@ -248,6 +248,14 @@ class EventController extends Controller
 
         $newEvent = $event->replicate();
         $newEvent->judul = $event->judul . ' (Copy)';
+
+        if ($event->gambar && $event->gambar !== 'konser.jpg' && Storage::disk('public')->exists($event->gambar)) {
+            $extension = pathinfo($event->gambar, PATHINFO_EXTENSION);
+            $newPath = 'events/' . uniqid() . '.' . $extension;
+            Storage::disk('public')->copy($event->gambar, $newPath);
+            $newEvent->gambar = $newPath;
+        }
+
         $newEvent->push();
 
         foreach ($event->tikets as $tiket) {
