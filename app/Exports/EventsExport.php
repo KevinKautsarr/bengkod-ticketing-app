@@ -20,7 +20,7 @@ class EventsExport implements FromCollection, WithHeadings, WithMapping, WithSty
      */
     public function collection()
     {
-        $query = Event::with(['kategori', 'tikets']);
+        $query = Event::with(['kategori', 'tikets', 'lokasi']);
 
         if (!empty($this->filters['kategori_id'])) {
             $query->where('kategori_id', $this->filters['kategori_id']);
@@ -30,7 +30,9 @@ class EventsExport implements FromCollection, WithHeadings, WithMapping, WithSty
             $search = $this->filters['search'];
             $query->where(function ($q) use ($search) {
                 $q->where('judul', 'like', "%{$search}%")
-                    ->orWhere('lokasi', 'like', "%{$search}%");
+                    ->orWhereHas('lokasi', function ($sub) use ($search) {
+                        $sub->where('nama_lokasi', 'like', "%{$search}%");
+                    });
             });
         }
 
@@ -63,7 +65,7 @@ class EventsExport implements FromCollection, WithHeadings, WithMapping, WithSty
             $event->judul,
             $event->kategori->nama ?? '-',
             $event->tanggal_waktu->format('d M Y, H:i'),
-            $event->lokasi,
+            $event->lokasi->nama_lokasi ?? '-',
             $event->status,
             $event->tikets->count(),
             $event->tikets->sum('stok'),

@@ -7,6 +7,7 @@ use App\Http\Requests\EventFormRequest;
 use App\Models\Event;
 use App\Models\Kategori;
 use App\Models\Tiket;
+use App\Models\Lokasi;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Maatwebsite\Excel\Facades\Excel;
@@ -18,7 +19,7 @@ class EventController extends Controller
      */
     public function index(Request $request)
     {
-        $eventsQuery = Event::with(['kategori', 'tikets']);
+        $eventsQuery = Event::with(['kategori', 'tikets', 'lokasi']);
 
         if ($request->filled('kategori_id')) {
             $eventsQuery->where('kategori_id', $request->kategori_id);
@@ -28,7 +29,9 @@ class EventController extends Controller
             $search = $request->search;
             $eventsQuery->where(function ($query) use ($search) {
                 $query->where('judul', 'like', "%{$search}%")
-                    ->orWhere('lokasi', 'like', "%{$search}%");
+                    ->orWhereHas('lokasi', function ($q) use ($search) {
+                        $q->where('nama_lokasi', 'like', "%{$search}%");
+                    });
             });
         }
 
@@ -54,9 +57,11 @@ class EventController extends Controller
     public function create()
     {
         $categories = Kategori::all();
+        $locations = Lokasi::where('aktif', 'Y')->get();
 
         return view('pages.admin.events.create', [
             'categories' => $categories,
+            'locations' => $locations,
         ]);
     }
 
@@ -78,7 +83,7 @@ class EventController extends Controller
             'kategori_id' => $validated['kategori_id'],
             'judul' => $validated['judul'],
             'deskripsi' => $validated['deskripsi'],
-            'lokasi' => $validated['lokasi'],
+            'lokasi_id' => $validated['lokasi_id'],
             'gambar' => $gambar,
             'tanggal_waktu' => $validated['tanggal_waktu'],
         ]);
@@ -97,19 +102,18 @@ class EventController extends Controller
             ->with('success', 'Event berhasil ditambahkan!');
     }
 
-    /**
-     * Show the form for editing the specified event.
-     */
     public function edit(Event $event)
     {
         $event->recordStatusChangeIfNeeded();
         $event->load(['tikets', 'histories.user']);
         $categories = Kategori::all();
+        $locations = Lokasi::where('aktif', 'Y')->get();
         $hasSales = $event->hasSales();
 
         return view('pages.admin.events.edit', [
             'event' => $event,
             'categories' => $categories,
+            'locations' => $locations,
             'hasSales' => $hasSales,
         ]);
     }
@@ -141,7 +145,7 @@ class EventController extends Controller
             'kategori_id' => $validated['kategori_id'],
             'judul' => $validated['judul'],
             'deskripsi' => $validated['deskripsi'],
-            'lokasi' => $validated['lokasi'],
+            'lokasi_id' => $validated['lokasi_id'],
             'gambar' => $gambar,
             'tanggal_waktu' => $validated['tanggal_waktu'],
         ]);

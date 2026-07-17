@@ -5,6 +5,7 @@ use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\EventController;
 use App\Http\Controllers\HomeController;
 use App\Http\Controllers\ProfileController;
+use App\Http\Controllers\LokasiController;
 use Illuminate\Support\Facades\Route;
 
 
@@ -34,6 +35,14 @@ Route::prefix('admin')->name('admin.events.')->middleware(['auth', 'verified', '
     Route::put('/events/{event}', [EventController::class, 'update'])->name('update');
     Route::delete('/events/{event}', [EventController::class, 'destroy'])->name('destroy');
     Route::post('/events/{event}/clone', [EventController::class, 'clone'])->name('clone');
+});
+
+// Location management routes (admin)
+Route::prefix('admin')->name('admin.lokasi.')->middleware(['auth', 'verified', 'admin'])->group(function () {
+    Route::get('/lokasi', [LokasiController::class, 'index'])->name('index');
+    Route::post('/lokasi', [LokasiController::class, 'store'])->name('store');
+    Route::put('/lokasi/{id}', [LokasiController::class, 'update'])->name('update');
+    Route::delete('/lokasi/{id}', [LokasiController::class, 'destroy'])->name('destroy');
 });
 
 Route::middleware('auth')->group(function () {
