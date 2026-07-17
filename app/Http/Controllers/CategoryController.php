@@ -12,6 +12,8 @@ class CategoryController extends Controller
      */
     public function store(Request $request)
     {
+        abort_unless($request->user()->role === 'admin', 403);
+
         $request->validate([
             'nama' => 'required|string|max:255|unique:kategoris,nama',
         ]);
@@ -29,6 +31,8 @@ class CategoryController extends Controller
      */
     public function update(Request $request, $id)
     {
+        abort_unless($request->user()->role === 'admin', 403);
+
         $request->validate([
             'nama' => 'required|string|max:255|unique:kategoris,nama,' . $id,
         ]);
@@ -45,8 +49,10 @@ class CategoryController extends Controller
     /**
      * Remove the specified category from storage.
      */
-    public function destroy($id)
+    public function destroy(Request $request, $id)
     {
+        abort_unless($request->user()->role === 'admin', 403);
+
         $category = Kategori::findOrFail($id);
         $category->delete();
 
